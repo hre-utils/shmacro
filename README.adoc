@@ -1,3 +1,105 @@
 = Shell Macros (shmacros)
 
 All the dangers of C macros, but now with the dangers of the shell, too!
+
+
+== Language
+Could see either writing this in `awk` or `bash`.
+Depends on how these are implemented.
+
+Need to read about how pre-processors are actually written.
+Does it tokenize the file and preform the substitutions there?
+Does it pretty much straight up line-by-line `sed` the changes?
+
+
+== Syntax ideas
+
+Each .[ba]sh file would have a matching .shm with macro definitions
+
+----
+macro NAME [arglist]
+   <macro body>
+endmacro
+
+# Example.
+macro IDX result, dict, key1, key2
+   declare -n __="${dict[key1]}"
+   declare -n __="${__[key2]}"
+   declare result="$__" ; unset '__'
+endmacro
+
+# use:
+#>    IDX(items, symbol, node, items)
+#
+# results in:
+#>    declare -n __="${symbol[node]}"
+#>    declare -n __="${__[items]}"
+#>    declare items="$__" ; unset '__'
+----
+
+Probably would need to make a second version of all the functions that results in a nameref, vs. a regular variable declaration.
+Can allow for variatic functions:
+
+----
+macro IDX result, array, indices...
+   declare result="$array"
+   declare __i  __
+   for __i in "${indices[@]}" ; do
+      declare -n __="$result"
+      declare result="${__[$__i]}
+   done
+   unset '__'
+endmacro
+----
+
+When the macro expansion sees `var...`, it reads the remaining arguments as strings, and throws them into an array under the name `var`.
+----
+# In bash.
+printf "declare -a var=( %s )\n"  "${line//,/ }"
+
+# Or in awk.
+gsub(/,/,  " ",  $0)
+print  "declare -a "  varname  "=( "  $0  ")"
+----
+
+
+== Ideas
+Have a "return" and a "non-return" form.
+If it doesn't "return" anything, all of the text is simply inserted above the invocation of the macro.
+If it does "return", the `return` text is inserted in-line, at the position of the invocation, with the body being above.
+
+.Example
+----
+macro IDX result, dict, key1, key2
+   declare -n __="${dict[key1]}"
+   declare -n __="${__[key2]}"
+return "$__" ; unset '__'
+----
+
+.Allows for
+----
+local -n items_r=IDX(symbol, node, items)
+
+# Generates:
+declare -n __="${symbol[node]}"
+declare -n __="${__[items]}"
+local -n items_r="$__" ; unset '__'
+----
+
+Can honestly generalize this by just always printing the macro body above the current line.
+Then substituting the invocation of the macro with the contents of the line after `endmacro`.
+If the user supplies nothing, it's a straight addition above.
+If they happen to give an expression, it's inserted.
+
+[source,awk]
+----
+for (line in macro[body]) {
+   print line
+}
+print text_before  macro[return]  text_after
+----
+
+
+== Debugging
+It will be necessary to have some pretty robust debugging.
+Probably at first echo a diff of the line before/after macro expansion.
